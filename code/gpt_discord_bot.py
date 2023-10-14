@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import discord  # Импортируем модуль discord, который позволяет взаимодействовать с Discord API
-import openai   # Импортируем модуль openai, который используется для работы с OpenAI API
-import configparser  # Импортируем модуль configparser f
+import openai  # Импортируем модуль openai, который используется для работы с OpenAI API
+import configparser  # Импортируем модуль configparser для работы с конфигурационными файлами
 
-config = configparser.ConfigParser()
-config.read('config.ini')
+config = configparser.ConfigParser()  # Создаем объект configparser
+config.read('config.ini')  # Читаем конфигурационный файл
 
 openai.api_key = config['DEFAULT']['OpenAI_API_Key']
 token = config['DEFAULT']['Discord_Token']
@@ -22,6 +22,7 @@ client = discord.Client(intents=intents)
 # Создаем список для хранения сообщений пользователя и бота
 user_context = []
 bot_context = []
+
 
 # Функция для генерации ответа
 async def generate_response(message):
@@ -42,6 +43,9 @@ async def generate_response(message):
         for msg in bot_context:
             messages.append({"role": "assistant", "content": msg})
 
+            # Добавляем специальный комментарий, чтобы бот понимал, где начинается сообщение пользователя
+            messages.append({"role": "system", "content": "<USER_MESSAGE_STARTS_HERE>"})
+
     # Генерируем ответ с помощью модели OpenAI ChatCompletion
     completions = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -60,6 +64,7 @@ async def generate_response(message):
     # Возвращаем содержимое ответа
     return response_content
 
+
 # Функция для отправки ответа в указанный канал
 async def send_response(channel, content):
     # Если содержимое ответа слишком большое, разделяем его на части и отправляем по частям
@@ -70,10 +75,12 @@ async def send_response(channel, content):
     else:
         await channel.send(content)
 
+
 # Функция, вызываемая при успешном подключении клиента к Discord
 @client.event
 async def on_ready():
     print(f'{client.user.name} has connected to Discord!')
+
 
 # Функция, вызываемая при получении нового сообщения
 @client.event
@@ -89,6 +96,7 @@ async def on_message(message):
             response_content = await generate_response(message.content)
             # Отправляем ответ в канал, откуда пришло сообщение
             await send_response(message.channel, response_content)
+
 
 # Запускаем клиент Discord
 client.run(token)
