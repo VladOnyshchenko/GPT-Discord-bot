@@ -1,69 +1,44 @@
 # -*- coding: utf-8 -*-
-import discord  # Импортируем модуль discord, который позволяет взаимодействовать с Discord API
-import openai  # Импортируем модуль openai, который используется для работы с OpenAI API
-import configparser  # Импортируем модуль configparser для работы с конфигурационными файлами
+from openai import OpenAI
+import discord
+import configparser
 
-config = configparser.ConfigParser()  # Создаем объект configparser
-config.read('config.ini')  # Читаем конфигурационный файл
+# Создаем объект configparser для чтения конфигурационного файла
+config = configparser.ConfigParser()
+config.read('config.ini')
 
-openai.api_key = config['DEFAULT']['OpenAI_API_Key']
+# Извлекаем ключи из конфигурационного файла
+api_key = config['DEFAULT']['OpenAI_API_Key']
 token = config['DEFAULT']['Discord_Token']
 CHANNEL_ID = int(config['DEFAULT']['Channel_ID'])
 Vlad_ID = int(config['DEFAULT']['Vlad_ID'])
-Voron_ID = int(config['DEFAULT']['Voron_ID'])
+
+# Создаем объект OpenAI
+client = OpenAI(api_key=api_key)
 
 # Создаем объект intents с настройками для клиента Discord
 intents = discord.Intents.default()
 intents.message_content = True
 
 # Создаем клиент Discord
-client = discord.Client(intents=intents)
-
-# Создаем список для хранения сообщений пользователя и бота
-user_context = []
-bot_context = []
-
+client1 = discord.Client(intents=intents)
 
 # Функция для генерации ответа
-async def generate_response(message):
-    # Добавляем сообщение пользователя в список контекста
-    user_context.append(message)
-    # Если количество сообщений в списке контекста превышает 3, удаляем самое старое сообщение
-    if len(user_context) > 3:
-        user_context.pop(0)
-
-    # Создаем список сообщений для передачи в модель OpenAI
-    messages = [{"role": "system", "content": "User messages:"}]
-    for msg in user_context:
-        messages.append({"role": "user", "content": msg})
-
-    # Если есть сообщения от бота, добавляем их в список сообщений
-    if len(bot_context) > 0:
-        messages.append({"role": "system", "content": "Bot messages:"})
-        for msg in bot_context:
-            messages.append({"role": "assistant", "content": msg})
-
-            # Добавляем специальный комментарий, чтобы бот понимал, где начинается сообщение пользователя
-            messages.append({"role": "system", "content": "<USER_MESSAGE_STARTS_HERE>"})
-
+async def generate_response(message_content):
     # Генерируем ответ с помощью модели OpenAI ChatCompletion
-    completions = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=messages,
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo-1106",
+        messages=[{"role": "user", "content": message_content}],
     )
-    # Получаем последнее сообщение из ответа и его содержимое
-    response = completions.choices[-1].message
-    response_content = response['content']
 
-    # Добавляем ответ бота в список контекста
-    bot_context.append(response_content)
-    # Если количество ответов в списке контекста превышает 3, удаляем самый старый ответ
-    if len(bot_context) > 3:
-        bot_context.pop(0)
-
-    # Возвращаем содержимое ответа
-    return response_content
-
+    # Проверяем наличие выборок и сообщений в ответе
+    if response.choices and response.choices[0].message and response.choices[0].message.content:
+        response_content = response.choices[0].message.content
+        return response_content
+    else:
+        # Обрабатываем случай, когда структура ответа неожиданна
+        print("Неожиданная структура ответа:", response)
+        return "Произошла ошибка при генерации ответа."
 
 # Функция для отправки ответа в указанный канал
 async def send_response(channel, content):
@@ -75,28 +50,25 @@ async def send_response(channel, content):
     else:
         await channel.send(content)
 
-
 # Функция, вызываемая при успешном подключении клиента к Discord
-@client.event
+@client1.event
 async def on_ready():
-    print(f'{client.user.name} has connected to Discord!')
-
+    print(f'{client1.user.name} has connected to Discord!')
 
 # Функция, вызываемая при получении нового сообщения
-@client.event
+@client1.event
 async def on_message(message):
     # Если автор сообщения - бот, игнорируем его
-    if message.author == client.user:
+    if message.author == client1.user:
         return
 
-    # Если сообщение от пользователя с ID Vlad_ID или Voron_ID или находится на нужном канале, обрабатываем его
-    if (isinstance(message.channel, discord.DMChannel) and message.author.id in [Vlad_ID, Voron_ID]) or message.channel.id == CHANNEL_ID:
+    # Если сообщение от пользователя с ID Vlad_ID или находится на нужном канале, обрабатываем его
+    if (isinstance(message.channel, discord.DMChannel) and message.author.id in [Vlad_ID]) or message.channel.id == CHANNEL_ID:
         if len(message.content.strip()) > 0:
             # Генерируем ответ на основе содержимого сообщения пользователя
             response_content = await generate_response(message.content)
             # Отправляем ответ в канал, откуда пришло сообщение
             await send_response(message.channel, response_content)
 
-
 # Запускаем клиент Discord
-client.run(token)
+client1.run(token)
