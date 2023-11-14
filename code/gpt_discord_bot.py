@@ -23,22 +23,48 @@ intents.message_content = True
 # Создаем клиент Discord
 client1 = discord.Client(intents=intents)
 
+# Словарь для хранения текущих тредов пользователей
+user_threads = {}
+
+# Переменная для управления этапами диалога
+dialog_stage = {}
+
+
 # Функция для генерации ответа
-async def generate_response(message_content):
-    # Генерируем ответ с помощью модели OpenAI ChatCompletion
+async def generate_response(message_content, user_id):
+    # Получаем текущий тред пользователя или создаем новый
+    user_thread = user_threads.setdefault(user_id, [])
+
+    # Добавляем текущее сообщение пользователя в историю
+    user_thread.append({"role": "user", "content": message_content})
+
+    # Отправляем историю сообщений пользователя, включая текущее сообщение
     response = client.chat.completions.create(
         model="gpt-3.5-turbo-1106",
-        messages=[{"role": "user", "content": message_content}],
+        messages=user_thread,
     )
+
+    # Обрезаем тред, если он превышает 4,096 токенов
+    if len(response.choices[0].message.content) > 4096:
+        user_thread.pop(0)  # Удаляем первое сообщение (самое старое)
 
     # Проверяем наличие выборок и сообщений в ответе
     if response.choices and response.choices[0].message and response.choices[0].message.content:
-        response_content = response.choices[0].message.content
-        return response_content
+        # Сохраняем ответ бота и обновляем историю сообщений пользователя
+        user_thread.append({"role": "assistant", "content": response.choices[0].message.content})
+
+        # Обрезаем тред, если он превышает 4,096 токенов
+        total_tokens = sum(len(msg["content"].split()) for msg in user_thread)
+        while total_tokens > 4096:
+            user_thread.pop(0)
+            total_tokens = sum(len(msg["content"].split()) for msg in user_thread)
+
+        return response.choices[0].message.content
     else:
         # Обрабатываем случай, когда структура ответа неожиданна
         print("Неожиданная структура ответа:", response)
         return "Произошла ошибка при генерации ответа."
+
 
 # Функция для отправки ответа в указанный канал
 async def send_response(channel, content):
@@ -50,10 +76,12 @@ async def send_response(channel, content):
     else:
         await channel.send(content)
 
+
 # Функция, вызываемая при успешном подключении клиента к Discord
 @client1.event
 async def on_ready():
     print(f'{client1.user.name} has connected to Discord!')
+
 
 # Функция, вызываемая при получении нового сообщения
 @client1.event
@@ -66,7 +94,7 @@ async def on_message(message):
     if (isinstance(message.channel, discord.DMChannel) and message.author.id in [Vlad_ID]) or message.channel.id == CHANNEL_ID:
         if len(message.content.strip()) > 0:
             # Генерируем ответ на основе содержимого сообщения пользователя
-            response_content = await generate_response(message.content)
+            response_content = await generate_response(message.content, message.author.id)
             # Отправляем ответ в канал, откуда пришло сообщение
             await send_response(message.channel, response_content)
 
