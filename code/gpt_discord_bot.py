@@ -44,10 +44,6 @@ async def generate_response(message_content, user_id):
         messages=user_thread,
     )
 
-    # Обрезаем тред, если он превышает 4,096 токенов
-    if len(response.choices[0].message.content) > 4096:
-        user_thread.pop(0)  # Удаляем первое сообщение (самое старое)
-
     # Проверяем наличие выборок и сообщений в ответе
     if response.choices and response.choices[0].message and response.choices[0].message.content:
         # Сохраняем ответ бота и обновляем историю сообщений пользователя
