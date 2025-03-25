@@ -1,98 +1,88 @@
 # -*- coding: utf-8 -*-
-from openai import OpenAI
 import discord
+from discord.ext import commands
+from openai import OpenAI
 import configparser
 
-# Создаем объект configparser для чтения конфигурационного файла
+# Читаем конфигурационный файл
 config = configparser.ConfigParser()
 config.read('config.ini')
 
-# Извлекаем ключи из конфигурационного файла
+# Извлекаем параметры
 api_key = config['DEFAULT']['OpenAI_API_Key']
 token = config['DEFAULT']['Discord_Token']
 CHANNEL_ID = int(config['DEFAULT']['Channel_ID'])
-Vlad_ID = int(config['DEFAULT']['Vlad_ID'])
+VLAD_ID = int(config['DEFAULT']['Vlad_ID'])
+VORON_ID = int(config['DEFAULT']['Voron_ID'])  # Добавляем второго пользователя
 
-# Создаем объект OpenAI
-client = OpenAI(api_key=api_key)
+# Инициализируем клиент OpenAI
+client_openai = OpenAI(api_key=api_key)
 
-# Создаем объект intents с настройками для клиента Discord
+# Настраиваем intents для Discord
 intents = discord.Intents.default()
 intents.message_content = True
+intents.messages = True
 
-# Создаем клиент Discord
-client1 = discord.Client(intents=intents)
+# Инициализируем бота
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Словарь для хранения текущих тредов пользователей
+# Словарь для хранения тредов пользователей
 user_threads = {}
 
-# Переменная для управления этапами диалога
-dialog_stage = {}
-
-
-# Функция для генерации ответа
+# Функция генерации ответа от OpenAI
 async def generate_response(message_content, user_id):
-    # Получаем текущий тред пользователя или создаем новый
     user_thread = user_threads.setdefault(user_id, [])
-
-    # Добавляем текущее сообщение пользователя в историю
     user_thread.append({"role": "user", "content": message_content})
 
-    # Отправляем историю сообщений пользователя, включая текущее сообщение
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo-1106",
-        messages=user_thread,
-    )
+    try:
+        response = client_openai.chat.completions.create(
+            model="gpt-3.5-turbo",  # Актуальная модель (можно заменить на gpt-3.5-turbo)
+            messages=user_thread,
+            max_tokens=4096
+        )
 
-    # Проверяем наличие выборок и сообщений в ответе
-    if response.choices and response.choices[0].message and response.choices[0].message.content:
-        # Сохраняем ответ бота и обновляем историю сообщений пользователя
-        user_thread.append({"role": "assistant", "content": response.choices[0].message.content})
+        if response.choices and response.choices[0].message.content:
+            assistant_response = response.choices[0].message.content
+            user_thread.append({"role": "assistant", "content": assistant_response})
 
-        # Обрезаем тред, если он превышает 4,096 токенов
-        total_tokens = sum(len(msg["content"].split()) for msg in user_thread)
-        while total_tokens > 4096:
-            user_thread.pop(0)
+            # Ограничение по токенам
             total_tokens = sum(len(msg["content"].split()) for msg in user_thread)
+            while total_tokens > 4096:
+                user_thread.pop(0)
+                total_tokens = sum(len(msg["content"].split()) for msg in user_thread)
 
-        return response.choices[0].message.content
-    else:
-        # Обрабатываем случай, когда структура ответа неожиданна
-        print("Неожиданная структура ответа:", response)
+            return assistant_response
+        else:
+            return "Ошибка: пустой ответ от OpenAI."
+    except Exception as e:
+        print(f"Ошибка OpenAI: {e}")
         return "Произошла ошибка при генерации ответа."
 
-
-# Функция для отправки ответа в указанный канал
+# Функция отправки ответа
 async def send_response(channel, content):
-    # Если содержимое ответа слишком большое, разделяем его на части и отправляем по частям
-    if len(content) > 1999:
-        chunks = [content[i:i + 1999] for i in range(0, len(content), 1999)]
+    if len(content) > 2000:  # Лимит Discord — 2000 символов
+        chunks = [content[i:i + 2000] for i in range(0, len(content), 2000)]
         for chunk in chunks:
             await channel.send(chunk)
     else:
         await channel.send(content)
 
-
-# Функция, вызываемая при успешном подключении клиента к Discord
-@client1.event
+# Событие: бот готов
+@bot.event
 async def on_ready():
-    print(f'{client1.user.name} has connected to Discord!')
+    print(f'{bot.user.name} has connected to Discord!')
 
-
-# Функция, вызываемая при получении нового сообщения
-@client1.event
+# Событие: обработка сообщений
+@bot.event
 async def on_message(message):
-    # Если автор сообщения - бот, игнорируем его
-    if message.author == client1.user:
+    if message.author == bot.user:
         return
 
-    # Если сообщение от пользователя с ID Vlad_ID или находится на нужном канале, обрабатываем его
-    if (isinstance(message.channel, discord.DMChannel) and message.author.id in [Vlad_ID]) or message.channel.id == CHANNEL_ID:
-        if len(message.content.strip()) > 0:
-            # Генерируем ответ на основе содержимого сообщения пользователя
+    # Поддержка двух пользователей в ЛС и указанного канала
+    if (isinstance(message.channel, discord.DMChannel) and message.author.id in [VLAD_ID, VORON_ID]) or message.channel.id == CHANNEL_ID:
+        if message.content.strip():
             response_content = await generate_response(message.content, message.author.id)
-            # Отправляем ответ в канал, откуда пришло сообщение
             await send_response(message.channel, response_content)
 
-# Запускаем клиент Discord
-client1.run(token)
+# Запуск бота
+bot.run(token)
